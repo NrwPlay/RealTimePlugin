@@ -90,7 +90,8 @@ public class WorldContainer {
     }
 
     public ZonedDateTime getDateTime(){
-        return ZonedDateTime.ofInstant(Instant.now() /* in UTC */, zone);
+        ZoneId activeZone = zone != null ? zone : ZoneId.systemDefault();
+        return ZonedDateTime.ofInstant(Instant.now(), activeZone);
     }
 
     public long getTime() {
@@ -125,25 +126,39 @@ public class WorldContainer {
             JSONObject object = (JSONObject) parser.parse(reader);
 
             String worldS = (String) object.get("world");
-            World world = Bukkit.getWorld(worldS);
-            if (world != null) {
-                this.world = world;
-                this.active = (boolean) object.get("active");
-                this.updateInterval = Math.max(10, (long) object.get("updateInterval"));
-                JSONObject timeObject = (JSONObject) object.get("time");
-                this.time = (boolean) timeObject.get("active");
-                this.timezone = (String) timeObject.get("timezone");
-                zone = ZoneId.of(timezone);
-                JSONObject weatherObject = (JSONObject) object.get("weather");
-                this.weather = (boolean) weatherObject.get("active");
-                this.weatherKey = (String) weatherObject.get("weatherKey");
-                this.weatherLocation = new String[]{((String) weatherObject.get("City")).replace(" ", "%20"), ((String) weatherObject.get("Country")).replace(" ", "%20")};
-            }
+            this.world = Bukkit.getWorld(worldS);
+            this.active = Boolean.TRUE.equals(object.get("active"));
+            this.updateInterval = Math.max(10, ((Number) object.getOrDefault("updateInterval", 10L)).longValue());
+
+            JSONObject timeObject = (JSONObject) object.get("time");
+            this.time = timeObject != null && Boolean.TRUE.equals(timeObject.get("active"));
+            this.zone = parseZoneId(timeObject == null ? null : (String) timeObject.get("timezone"));
+            this.timezone = this.zone.getId();
+
+            JSONObject weatherObject = (JSONObject) object.get("weather");
+            this.weather = weatherObject != null && Boolean.TRUE.equals(weatherObject.get("active"));
+            this.weatherKey = weatherObject == null ? "" : (String) weatherObject.getOrDefault("weatherKey", "");
+            String city = weatherObject == null ? "" : (String) weatherObject.getOrDefault("City", "");
+            String country = weatherObject == null ? "" : (String) weatherObject.getOrDefault("Country", "");
+            this.weatherLocation = new String[]{city.replace(" ", "%20"), country.replace(" ", "%20")};
         } catch (Exception e) {
             throw new RuntimeException(String.format("Count not load world configuration %s", this.file), e);
         }
 
         runUpdate();
+    }
+
+    private ZoneId parseZoneId(String configuredTimezone) {
+        ZoneId fallback = ZoneId.systemDefault();
+        if (configuredTimezone == null || configuredTimezone.trim().isEmpty()) {
+            return fallback;
+        }
+        try {
+            return ZoneId.of(configuredTimezone);
+        } catch (Exception ignored) {
+            Main.getPlugin().getLogger().warning(String.format("Invalid timezone '%s' in %s. Falling back to %s.", configuredTimezone, file.getName(), fallback.getId()));
+            return fallback;
+        }
     }
 
 
